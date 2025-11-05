@@ -1,0 +1,63 @@
+[tool.poetry]
+name = "wms-material-request"
+version = "0.1.0"
+description = "Warehouse Management System foundation for material requests and dispatch workflow"
+authors = ["Your Team <team@example.com>"]
+readme = "README.md"
+packages = [{ include = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.110.0"
+uvicorn = { extras = ["standard"], version = "^0.27.0" }
+pydantic = "^2.6.0"
+pydantic-settings = "^2.2.1"
+firebase-admin = "^6.4.0"
+httpx = "^0.27.0"
+python-dotenv = "^1.0.1"
+google-cloud-firestore = "^2.14.0"
+python-multipart = "^0.0.9"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+pytest-asyncio = "^0.23.0"
+ruff = "^0.3.0"
+black = "^24.2.0"
+isort = "^5.13.0"
+mypy = "^1.8.0"
+coverage = "^7.4.0"
+
+[build-system]
+requires = ["poetry-core>=1.8.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.isort]
+profile = "black"
+known_first_party = ["src"]
+line_length = 100
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_configs = true
+ignore_missing_imports = true
+strict_optional = true
+disallow_untyped_defs = true
+namespace_packages = true
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra -q"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+select = ["E", "F", "I", "B"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
