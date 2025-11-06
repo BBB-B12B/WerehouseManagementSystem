@@ -32,8 +32,12 @@ class CloudflareR2Client:
         self._endpoint = f"https://{self._settings.r2.account_id}.r2.cloudflarestorage.com"
 
     @property
+    def bucket_name(self) -> str:
+        return self._settings.r2.bucket_name
+
+    @property
     def public_prefix(self) -> str:
-        return self._settings.r2.public_base_url.rstrip("/")
+        return f"{self._endpoint}/{self.bucket_name}".rstrip("/")
 
     def generate_object_key(self, *, prefix: str, file_name: str) -> str:
         timestamp = int(time.time())
@@ -41,8 +45,16 @@ class CloudflareR2Client:
         random_hash = hashlib.sha1(f"{file_name}-{timestamp}".encode()).hexdigest()
         return f"{prefix}/{timestamp}-{random_hash}-{safe_name}"
 
+    def _object_path(self, key: str) -> str:
+        encoded_key = quote(key.lstrip("/"), safe="/-_.~")
+        return f"/{self.bucket_name}/{encoded_key}"
+
+    def build_object_url(self, key: str) -> str:
+        return f"{self._endpoint}{self._object_path(key)}"
+
     def build_public_url(self, key: str) -> str:
-        return f"{self.public_prefix}/{key}"
+        # คง interface เดิมไว้แต่ใช้ signed URL สำหรับการอ่าน
+        return self.generate_signed_read_url(key)
 
     def sign_upload(self, key: str, expires_in: int | None = None) -> SignedUploadURL:
         ttl = expires_in or self._settings.r2.signed_url_ttl
@@ -129,7 +141,59 @@ class CloudflareR2Client:
 
         response = httpx.put(url, content=content, headers=headers, timeout=30.0)
         response.raise_for_status()
-        return self.build_public_url(key)
+        return self.build_object_url(key)
+
+    def generate_signed_read_url(self, key: str, *, expires_in: Optional[int] = None) -> str:
+        if not key:
+            raise ValueError("key ต้องไม่เป็นค่าว่าง")
+
+        ttl = expires_in or self._settings.r2.signed_url_ttl
+        ttl = max(1, min(ttl, 7 * 24 * 60 * 60))
+
+        now = datetime.now(timezone.utc)
+        amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+        date_stamp = now.strftime("%Y%m%d")
+
+        canonical_uri = self._object_path(key)
+        host = f"{self._settings.r2.account_id}.r2.cloudflarestorage.com"
+        credential_scope = f"{date_stamp}/auto/s3/aws4_request"
+        credential = f"{self._settings.r2.access_key_id}/{credential_scope}"
+
+        query_items = [
+            ("X-Amz-Algorithm", "AWS4-HMAC-SHA256"),
+            ("X-Amz-Credential", quote(credential, safe="")),
+            ("X-Amz-Date", amz_date),
+            ("X-Amz-Expires", str(ttl)),
+            ("X-Amz-SignedHeaders", "host"),
+        ]
+        canonical_querystring = "&".join(f"{name}={value}" for name, value in query_items)
+
+        canonical_headers = f"host:{host}\n"
+        signed_headers = "host"
+        payload_hash = "UNSIGNED-PAYLOAD"
+        canonical_request = "\n".join(
+            [
+                "GET",
+                canonical_uri,
+                canonical_querystring,
+                canonical_headers,
+                signed_headers,
+                payload_hash,
+            ]
+        )
+        hashed_canonical_request = hashlib.sha256(canonical_request.encode("utf-8")).hexdigest()
+        string_to_sign = "\n".join(
+            [
+                "AWS4-HMAC-SHA256",
+                amz_date,
+                credential_scope,
+                hashed_canonical_request,
+            ]
+        )
+        signing_key = self._derive_signing_key(date_stamp=date_stamp, region="auto", service="s3")
+        signature = hmac.new(signing_key, string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
+        signed_query = f"{canonical_querystring}&X-Amz-Signature={signature}"
+        return f"https://{host}{canonical_uri}?{signed_query}"
 
     def _derive_signing_key(self, *, date_stamp: str, region: str, service: str) -> bytes:
         secret = self._settings.r2.secret_access_key

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+import logging
 from typing import Optional, Protocol, Sequence
 
 from google.cloud import firestore
@@ -399,6 +400,7 @@ def _build_line_data(line: RequestLineCreate) -> dict:
 
 
 _DEFAULT_REPO: Optional[RequestRepository] = None
+_LOGGER = logging.getLogger(__name__)
 
 
 def get_request_repository() -> RequestRepository:
@@ -412,5 +414,12 @@ def get_request_repository() -> RequestRepository:
     if settings.environment == "local":
         _DEFAULT_REPO = InMemoryRequestRepository()
     else:
-        _DEFAULT_REPO = FirebaseRequestRepository()
+        try:
+            _DEFAULT_REPO = FirebaseRequestRepository()
+        except Exception as exc:  # pragma: no cover - เน้น fallback runtime
+            _LOGGER.warning(
+                "เชื่อม Firebase Firestore ไม่สำเร็จ (%s) – ใช้คลังข้อมูลในหน่วยความจำแทนชั่วคราว",
+                exc,
+            )
+            _DEFAULT_REPO = InMemoryRequestRepository()
     return _DEFAULT_REPO

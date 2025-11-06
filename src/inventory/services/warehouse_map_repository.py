@@ -3,12 +3,14 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Protocol
+from urllib.parse import urlparse
 
 from google.cloud import firestore
 
 from src.inventory.schemas.warehouse_map import MapArea, WarehouseMap
 from src.shared.config import get_settings
 from src.shared.firebase.client import get_firestore_client
+from src.shared.storage.r2_client import CloudflareR2Client, get_r2_client
 
 
 class WarehouseMapRepository(Protocol):
@@ -33,21 +35,28 @@ class InMemoryWarehouseMapRepository(WarehouseMapRepository):
         self._storage: Dict[str, WarehouseMap] = {}
 
     def list_maps(self) -> List[WarehouseMap]:
-        return sorted(self._storage.values(), key=lambda item: item.created_at)
+        return [
+            _with_signed_image_url(item.model_copy(deep=True))
+            for item in sorted(self._storage.values(), key=lambda record: record.created_at)
+        ]
 
     def get_map(self, map_id: str) -> Optional[WarehouseMap]:
         value = self._storage.get(map_id)
-        return value.model_copy(deep=True) if value else None
+        return _with_signed_image_url(value.model_copy(deep=True)) if value else None
 
     def create_map(self, warehouse_map: WarehouseMap) -> WarehouseMap:
-        self._storage[warehouse_map.id] = warehouse_map.model_copy(deep=True)
-        return warehouse_map
+        stored = warehouse_map.model_copy(deep=True)
+        stored.image_url = _prepare_storage_value(stored.image_url)
+        self._storage[warehouse_map.id] = stored
+        return _with_signed_image_url(stored.model_copy(deep=True))
 
     def update_map(self, warehouse_map: WarehouseMap) -> WarehouseMap:
         if warehouse_map.id not in self._storage:
             raise KeyError("Map not found")
-        self._storage[warehouse_map.id] = warehouse_map.model_copy(deep=True)
-        return warehouse_map
+        stored = warehouse_map.model_copy(deep=True)
+        stored.image_url = _prepare_storage_value(stored.image_url)
+        self._storage[warehouse_map.id] = stored
+        return _with_signed_image_url(stored.model_copy(deep=True))
 
     def delete_map(self, map_id: str) -> None:
         self._storage.pop(map_id, None)
@@ -77,11 +86,11 @@ class FirestoreWarehouseMapRepository(WarehouseMapRepository):
 
     def create_map(self, warehouse_map: WarehouseMap) -> WarehouseMap:
         self.collection.document(warehouse_map.id).set(_map_to_document(warehouse_map))
-        return warehouse_map
+        return _with_signed_image_url(warehouse_map)
 
     def update_map(self, warehouse_map: WarehouseMap) -> WarehouseMap:
         self.collection.document(warehouse_map.id).set(_map_to_document(warehouse_map))
-        return warehouse_map
+        return _with_signed_image_url(warehouse_map)
 
     def delete_map(self, map_id: str) -> None:
         self.collection.document(map_id).delete()
@@ -112,22 +121,24 @@ def _document_to_map(doc: firestore.DocumentSnapshot) -> WarehouseMap:
         created_at = datetime.now(timezone.utc)
     if not isinstance(updated_at, datetime):
         updated_at = created_at
-    return WarehouseMap(
-        id=doc.id,
-        name=data.get("name"),
-        image_url=data.get("image_url"),
-        image_width=int(data.get("image_width", 0)),
-        image_height=int(data.get("image_height", 0)),
-        areas=areas,
-        created_at=created_at,
-        updated_at=updated_at,
+    return _with_signed_image_url(
+        WarehouseMap(
+            id=doc.id,
+            name=data.get("name"),
+            image_url=_prepare_storage_value(data.get("image_url")),
+            image_width=int(data.get("image_width", 0)),
+            image_height=int(data.get("image_height", 0)),
+            areas=areas,
+            created_at=created_at,
+            updated_at=updated_at,
+        )
     )
 
 
 def _map_to_document(warehouse_map: WarehouseMap) -> Dict[str, object]:
     return {
         "name": warehouse_map.name,
-        "image_url": str(warehouse_map.image_url) if warehouse_map.image_url else None,
+        "image_url": _prepare_storage_value(warehouse_map.image_url),
         "image_width": warehouse_map.image_width,
         "image_height": warehouse_map.image_height,
         "areas": [area.model_dump(mode="python") for area in warehouse_map.areas],
@@ -138,3 +149,55 @@ def _map_to_document(warehouse_map: WarehouseMap) -> Dict[str, object]:
 
 def generate_area_id() -> str:
     return uuid.uuid4().hex
+
+
+def _normalize_image_url(raw_url: Optional[str]) -> Optional[str]:
+    # Deprecated helper retained for compatibility
+    return _generate_signed_url_from_value(raw_url)
+
+
+def _prepare_storage_value(raw_value: Optional[str]) -> Optional[str]:
+    if not raw_value:
+        return None
+    text = str(raw_value).strip()
+    if not text:
+        return None
+    parsed = urlparse(text)
+    settings = get_settings()
+    bucket = settings.r2.bucket_name
+    if parsed.scheme:
+        path = parsed.path.lstrip("/")
+        if path.startswith(f"{bucket}/"):
+            remainder = path[len(bucket) + 1 :]
+            return remainder or None
+        return path or None
+    return text.lstrip("/")
+
+
+def _with_signed_image_url(warehouse_map: WarehouseMap | None) -> WarehouseMap | None:
+    if warehouse_map is None:
+        return None
+    key = _prepare_storage_value(warehouse_map.image_url)
+    if not key:
+        return warehouse_map
+    signed_url = _generate_signed_url_from_key(key)
+    if not signed_url:
+        return warehouse_map
+    return warehouse_map.model_copy(update={"image_url": signed_url})
+
+
+def _generate_signed_url_from_value(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    key = _prepare_storage_value(value)
+    if not key:
+        return None
+    return _generate_signed_url_from_key(key)
+
+
+def _generate_signed_url_from_key(key: str) -> Optional[str]:
+    client: CloudflareR2Client = get_r2_client()
+    try:
+        return client.generate_signed_read_url(key)
+    except Exception:
+        return client.build_object_url(key)
