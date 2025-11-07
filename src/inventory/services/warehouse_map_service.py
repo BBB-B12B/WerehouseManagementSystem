@@ -8,14 +8,17 @@ from typing import List, Optional
 from src.inventory.schemas.warehouse_map import MapArea, MapAreaCreate, WarehouseMap, WarehouseMapCreate, WarehouseMapUpdate
 from src.inventory.services.warehouse_map_repository import (
     WarehouseMapRepository,
+    extract_storage_key,
     generate_area_id,
     get_warehouse_map_repository,
 )
+from src.shared.storage.r2_client import CloudflareR2Client, get_r2_client
 
 
 class WarehouseMapService:
-    def __init__(self, repository: WarehouseMapRepository) -> None:
+    def __init__(self, repository: WarehouseMapRepository, storage_client: CloudflareR2Client | None = None) -> None:
         self._repository = repository
+        self._storage = storage_client or get_r2_client()
 
     def list_maps(self) -> List[WarehouseMap]:
         return self._repository.list_maps()
@@ -56,10 +59,28 @@ class WarehouseMapService:
             updated.areas = _build_areas(payload.areas, updated.image_width, updated.image_height)
 
         updated.updated_at = datetime.now(timezone.utc)
-        return self._repository.update_map(updated)
+
+        old_key = extract_storage_key(existing.image_url)
+        new_key = extract_storage_key(payload.image_url) if payload.image_url is not None else old_key
+
+        result = self._repository.update_map(updated)
+        if payload.image_url is not None and old_key and new_key and old_key != new_key:
+            self._delete_object(old_key)
+        return result
 
     def delete_map(self, map_id: str) -> None:
+        existing = self.get_map(map_id)
         self._repository.delete_map(map_id)
+        self._delete_object(extract_storage_key(existing.image_url))
+
+    def _delete_object(self, key: Optional[str]) -> None:
+        if not key:
+            return
+        try:
+            self._storage.delete_object(key)
+        except Exception:
+            # Ignore deletion failures to avoid blocking map updates
+            pass
 
 
 def _build_areas(

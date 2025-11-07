@@ -25,6 +25,14 @@ class R2Settings(BaseSettings):
     signed_url_ttl: int = Field(default=3600, alias="R2_SIGNED_URL_TTL")
 
 
+class WorkflowSettings(BaseSettings):
+    """ค่าตั้งต้นสำหรับโครงสร้างเอกสารงานคลังสินค้า."""
+
+    root_collection: str = Field(default="warehouse_workflows", alias="WORKFLOW_ROOT_COLLECTION")
+    root_document: str = Field(default="document", alias="WORKFLOW_ROOT_DOCUMENT")
+    prefer_in_memory: bool = Field(default=False, alias="WORKFLOW_PREFER_IN_MEMORY")
+
+
 class Settings(BaseSettings):
     """ค่าคอนฟิกส่วนกลางของระบบ WMS."""
 
@@ -35,6 +43,7 @@ class Settings(BaseSettings):
 
     firebase: FirebaseSettings = Field(default_factory=FirebaseSettings)
     r2: R2Settings = Field(default_factory=R2Settings)
+    workflow: WorkflowSettings = Field(default_factory=WorkflowSettings)
 
 
 @lru_cache

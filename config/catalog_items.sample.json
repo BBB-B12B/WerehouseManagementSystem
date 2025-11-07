@@ -1,0 +1,80 @@
+[
+  {
+    "id": "item-1",
+    "sku": "SKU-001",
+    "name": "สว่านกระแทก 600W",
+    "description": "สว่านกระแทกกำลังไฟ 600 วัตต์ สำหรับงานติดตั้งทั่วไป",
+    "category_id": "tools",
+    "unit": "ชิ้น",
+    "stock_on_hand": 25,
+    "stock_reserved": 3,
+    "image_url": null,
+    "tags": ["สว่าน", "เครื่องมือไฟฟ้า"],
+    "location_hint": "โซน A · ชั้น R1 · ระดับ L1"
+  },
+  {
+    "id": "item-2",
+    "sku": "SKU-002",
+    "name": "ไขควงหัวแฉก No.2",
+    "description": "ไขควงหัวแฉกขนาด No.2 ด้ามยางกันลื่น",
+    "category_id": "tools",
+    "unit": "ชิ้น",
+    "stock_on_hand": 120,
+    "stock_reserved": 10,
+    "image_url": null,
+    "tags": ["ไขควง", "เครื่องมือช่าง"],
+    "location_hint": "โซน A · ชั้น R2 · ระดับ L1"
+  },
+  {
+    "id": "item-3",
+    "sku": "SKU-003",
+    "name": "ถุงมือกันลื่นเคลือบยาง",
+    "description": "ถุงมือผ้าเคลือบยาง สำหรับงานคลังสินค้า",
+    "category_id": "safety",
+    "unit": "คู่",
+    "stock_on_hand": 200,
+    "stock_reserved": 15,
+    "image_url": null,
+    "tags": ["ถุงมือ", "อุปกรณ์นิรภัย"],
+    "location_hint": "โซน B · ชั้น R1 · ระดับ L2"
+  },
+  {
+    "id": "item-4",
+    "sku": "SKU-004",
+    "name": "เทปกาวสองหน้า 2 นิ้ว",
+    "description": "เทปกาวสองหน้า ขนาดกว้าง 2 นิ้ว ยาว 20 เมตร",
+    "category_id": "packing",
+    "unit": "ม้วน",
+    "stock_on_hand": 80,
+    "stock_reserved": 6,
+    "image_url": null,
+    "tags": ["เทปกาว", "บรรจุภัณฑ์"],
+    "location_hint": "โซน C · ชั้น R3 · ระดับ L1"
+  },
+  {
+    "id": "item-5",
+    "sku": "SKU-005",
+    "name": "ฟิล์มยืดพันพาเลท 17 ไมครอน",
+    "description": "ฟิล์มยืดสำหรับพันพาเลท หนา 17 ไมครอน",
+    "category_id": "packing",
+    "unit": "ม้วน",
+    "stock_on_hand": 45,
+    "stock_reserved": 5,
+    "image_url": null,
+    "tags": ["ฟิล์มยืด", "พาเลท"],
+    "location_hint": "โซน C · ชั้น R2 · ระดับ L2"
+  },
+  {
+    "id": "item-6",
+    "sku": "SKU-006",
+    "name": "ลังพลาสติกพับได้ 60 ลิตร",
+    "description": "ลังพลาสติกแบบพับได้ ขนาดความจุ 60 ลิตร",
+    "category_id": "container",
+    "unit": "ใบ",
+    "stock_on_hand": 32,
+    "stock_reserved": 4,
+    "image_url": null,
+    "tags": ["ลัง", "ภาชนะ"],
+    "location_hint": "โซน D · ชั้น R1 · ระดับ L1"
+  }
+]

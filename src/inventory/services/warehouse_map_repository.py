@@ -174,6 +174,10 @@ def _prepare_storage_value(raw_value: Optional[str]) -> Optional[str]:
     return text.lstrip("/")
 
 
+def extract_storage_key(raw_value: Optional[str]) -> Optional[str]:
+    return _prepare_storage_value(raw_value)
+
+
 def _with_signed_image_url(warehouse_map: WarehouseMap | None) -> WarehouseMap | None:
     if warehouse_map is None:
         return None
@@ -198,6 +202,6 @@ def _generate_signed_url_from_value(value: Optional[str]) -> Optional[str]:
 def _generate_signed_url_from_key(key: str) -> Optional[str]:
     client: CloudflareR2Client = get_r2_client()
     try:
-        return client.generate_signed_read_url(key)
+        return client.build_public_url(key)
     except Exception:
         return client.build_object_url(key)

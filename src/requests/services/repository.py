@@ -5,6 +5,11 @@ from datetime import datetime, timezone
 import logging
 from typing import Optional, Protocol, Sequence
 
+import json
+from pathlib import Path
+from urllib.parse import urlparse
+
+from google.api_core import exceptions as google_exceptions
 from google.cloud import firestore
 
 from src.requests.schemas.catalog import Category, Item, ItemCreate, ItemUpdate
@@ -18,6 +23,7 @@ from src.requests.schemas.request import (
 )
 from src.shared.config import get_settings
 from src.shared.firebase.client import get_firestore_client
+from src.shared.storage.r2_client import CloudflareR2Client, get_r2_client
 
 
 class RequestRepository(Protocol):
@@ -50,8 +56,13 @@ class RequestRepository(Protocol):
 class FirebaseRequestRepository:
     """repository ที่ทำงานกับ Firebase Firestore."""
 
-    def __init__(self, client: Optional[firestore.Client] = None) -> None:
+    def __init__(
+        self,
+        client: Optional[firestore.Client] = None,
+        storage_client: Optional[CloudflareR2Client] = None,
+    ) -> None:
         self._client = client or get_firestore_client()
+        self._storage = storage_client or get_r2_client()
 
     @property
     def categories_collection(self) -> firestore.CollectionReference:
@@ -89,10 +100,15 @@ class FirebaseRequestRepository:
         query: firestore.Query = self.items_collection.where("active", "==", True)
         if category_id:
             query = query.where("category_id", "==", category_id)
-        docs = query.stream()
 
         items: list[Item] = []
-        for doc in docs:
+        try:
+            documents = list(query.stream(retry=None, timeout=5))
+        except (google_exceptions.GoogleAPICallError, google_exceptions.RetryError) as exc:
+            logging.warning("ไม่สามารถเชื่อม Firestore ได้ ข้ามไปใช้ข้อมูลสำรอง (%s)", exc)
+            return self._load_local_items(search=search, category_id=category_id)
+
+        for doc in documents:
             data = doc.to_dict()
             if search:
                 keyword = search.lower()
@@ -206,6 +222,39 @@ class FirebaseRequestRepository:
             )
         return requests
 
+    def _load_local_items(
+        self, *, search: Optional[str] = None, category_id: Optional[str] = None
+    ) -> list[Item]:
+        fallback_path = Path("config/catalog_items.sample.json")
+        if not fallback_path.exists():
+            logging.warning("ไม่มีไฟล์รายการสินค้าสำรองที่ %s", fallback_path)
+            return []
+
+        try:
+            with fallback_path.open("r", encoding="utf-8") as fh:
+                payload = json.load(fh)
+        except (OSError, json.JSONDecodeError) as exc:
+            logging.error("อ่านไฟล์ catalog sample ไม่สำเร็จ: %s", exc)
+            return []
+
+        results: list[Item] = []
+        for entry in payload:
+            try:
+                item = Item(**entry)
+            except Exception as exc:  # pydantic validation error
+                logging.warning("ข้ามข้อมูลสินค้าไม่ถูกต้องจาก sample: %s", exc)
+                continue
+            if category_id and item.category_id != category_id:
+                continue
+            if search:
+                keyword = search.lower()
+                searchable = f"{item.name} {item.sku} {' '.join(item.tags)}"
+                if keyword not in searchable.lower():
+                    continue
+            results.append(item)
+        results.sort(key=lambda item: item.name)
+        return results
+
     def create_item(self, payload: ItemCreate) -> Item:
         doc_ref = self.items_collection.document()
         data = {
@@ -217,7 +266,7 @@ class FirebaseRequestRepository:
             "stock_on_hand": payload.stock_on_hand,
             "stock_reserved": payload.stock_reserved,
             "tags": payload.tags,
-            "image_url": payload.image_url,
+            "image_url": str(payload.image_url) if payload.image_url else None,
             "location_hint": payload.location_hint,
             "active": payload.active,
         }
@@ -230,20 +279,55 @@ class FirebaseRequestRepository:
         if not snapshot.exists:
             raise ValueError("ไม่พบสินค้า")
         update_data = {k: v for k, v in payload.model_dump(exclude_unset=True).items()}
+        if "image_url" in update_data and update_data["image_url"] is not None:
+            update_data["image_url"] = str(update_data["image_url"])
+        current_data = snapshot.to_dict() or {}
+        previous_image = current_data.get("image_url")
+        current_data.pop("id", None)
         if "stock_reserved" in update_data:
-            stock_on_hand = update_data.get("stock_on_hand", snapshot.get("stock_on_hand", 0))
+            stock_on_hand = update_data.get("stock_on_hand", current_data.get("stock_on_hand", 0))
             if update_data["stock_reserved"] > stock_on_hand:
                 raise ValueError("stock_reserved ต้องไม่เกิน stock_on_hand")
         doc_ref.update(update_data)
-        final_data = snapshot.to_dict() or {}
-        final_data.update(update_data)
-        return Item(id=item_id, **final_data)
+        current_data.update(update_data)
+        if "image_url" in update_data and previous_image and update_data.get("image_url") != previous_image:
+            self._delete_image(previous_image)
+        return Item(id=item_id, **current_data)
 
     def delete_item(self, item_id: str) -> None:
         doc_ref = self.items_collection.document(item_id)
-        if not doc_ref.get().exists:
+        snapshot = doc_ref.get()
+        if not snapshot.exists:
             raise ValueError("ไม่พบสินค้า")
         doc_ref.delete()
+        data = snapshot.to_dict() or {}
+        image_url = data.get("image_url")
+        if image_url:
+            self._delete_image(image_url)
+
+    def _delete_image(self, image_url: Optional[str]) -> None:
+        key = self._extract_key(image_url)
+        if not key:
+            return
+        try:
+            self._storage.delete_object(key)
+        except Exception:
+            logging.warning("ลบไฟล์ %s จาก R2 ไม่สำเร็จ", key, exc_info=True)
+
+    def _extract_key(self, value: Optional[str]) -> Optional[str]:
+        if not value:
+            return None
+        text = str(value).strip()
+        if not text:
+            return None
+        parsed = urlparse(text)
+        if parsed.scheme and parsed.netloc:
+            path = parsed.path.lstrip("/")
+            bucket_prefix = f"{self._storage.bucket_name}/"
+            if path.startswith(bucket_prefix):
+                return path[len(bucket_prefix) :]
+            return path or None
+        return text.lstrip("/")
 
 
 class InMemoryRequestRepository:
@@ -360,7 +444,7 @@ class InMemoryRequestRepository:
             unit=payload.unit,
             stock_on_hand=payload.stock_on_hand,
             stock_reserved=payload.stock_reserved,
-            image_url=payload.image_url,
+            image_url=str(payload.image_url) if payload.image_url else None,
             tags=payload.tags,
             location_hint=payload.location_hint,
             active=payload.active,
@@ -378,6 +462,8 @@ class InMemoryRequestRepository:
             stock_on_hand = updates.get("stock_on_hand", data["stock_on_hand"])
             if updates["stock_reserved"] > stock_on_hand:
                 raise ValueError("stock_reserved ต้องไม่เกิน stock_on_hand")
+        if "image_url" in updates and updates["image_url"] is not None:
+            updates["image_url"] = str(updates["image_url"])
         data.update(updates)
         updated = Item(**data)
         self._items[item_id] = updated

@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.inventory.routers import picking_queue, qr_transactions, warehouse_maps
+from src.inventory.routers import picking_queue, qr_transactions, warehouse_maps, receiving
 from src.logistics.routers import work_orders
 from src.requests.routers import catalog, request
 from src.shared.config import Settings, get_settings
@@ -27,6 +27,7 @@ def create_app() -> FastAPI:
     app.include_router(picking_queue.router, prefix="/api")
     app.include_router(qr_transactions.router, prefix="/api")
     app.include_router(warehouse_maps.router, prefix="/api")
+    app.include_router(receiving.router, prefix="/api")
     app.include_router(work_orders.router, prefix="/api")
     app.include_router(storage.router, prefix="/api")
 

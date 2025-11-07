@@ -30,6 +30,7 @@ class CloudflareR2Client:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._endpoint = f"https://{self._settings.r2.account_id}.r2.cloudflarestorage.com"
+        self._public_base = self._settings.r2.public_base_url.rstrip("/")
 
     @property
     def bucket_name(self) -> str:
@@ -38,6 +39,10 @@ class CloudflareR2Client:
     @property
     def public_prefix(self) -> str:
         return f"{self._endpoint}/{self.bucket_name}".rstrip("/")
+
+    @property
+    def public_base_url(self) -> str:
+        return self._public_base
 
     def generate_object_key(self, *, prefix: str, file_name: str) -> str:
         timestamp = int(time.time())
@@ -53,8 +58,10 @@ class CloudflareR2Client:
         return f"{self._endpoint}{self._object_path(key)}"
 
     def build_public_url(self, key: str) -> str:
-        # คง interface เดิมไว้แต่ใช้ signed URL สำหรับการอ่าน
-        return self.generate_signed_read_url(key)
+        clean_key = key.lstrip("/")
+        if not self._public_base:
+            return self.generate_signed_read_url(key)
+        return f"{self._public_base}/{clean_key}"
 
     def sign_upload(self, key: str, expires_in: int | None = None) -> SignedUploadURL:
         ttl = expires_in or self._settings.r2.signed_url_ttl
@@ -142,6 +149,56 @@ class CloudflareR2Client:
         response = httpx.put(url, content=content, headers=headers, timeout=30.0)
         response.raise_for_status()
         return self.build_object_url(key)
+
+    def delete_object(self, key: str) -> None:
+        if not key:
+            return
+        encoded_key = quote(key.lstrip("/"), safe="/-_.~")
+        canonical_uri = f"/{self._settings.r2.bucket_name}/{encoded_key}"
+        host = f"{self._settings.r2.account_id}.r2.cloudflarestorage.com"
+        now = datetime.now(timezone.utc)
+        amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+        date_stamp = now.strftime("%Y%m%d")
+        credential_scope = f"{date_stamp}/auto/s3/aws4_request"
+        signed_headers = "host"
+        canonical_headers = f"host:{host}\n"
+        payload_hash = hashlib.sha256(b"").hexdigest()
+        canonical_request = "\n".join(
+            [
+                "DELETE",
+                canonical_uri,
+                "",
+                canonical_headers,
+                signed_headers,
+                payload_hash,
+            ]
+        )
+        hashed_canonical_request = hashlib.sha256(canonical_request.encode("utf-8")).hexdigest()
+        string_to_sign = "\n".join(
+            [
+                "AWS4-HMAC-SHA256",
+                amz_date,
+                credential_scope,
+                hashed_canonical_request,
+            ]
+        )
+        signing_key = self._derive_signing_key(date_stamp=date_stamp, region="auto", service="s3")
+        signature = hmac.new(signing_key, string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
+        authorization_header = (
+            "AWS4-HMAC-SHA256 "
+            f"Credential={self._settings.r2.access_key_id}/{credential_scope}, "
+            f"SignedHeaders={signed_headers}, "
+            f"Signature={signature}"
+        )
+        url = f"{self._endpoint}{canonical_uri}"
+        headers = {
+            "Host": host,
+            "X-Amz-Date": amz_date,
+            "Authorization": authorization_header,
+            "X-Amz-Content-Sha256": payload_hash,
+        }
+        response = httpx.delete(url, headers=headers, timeout=15.0)
+        response.raise_for_status()
 
     def generate_signed_read_url(self, key: str, *, expires_in: Optional[int] = None) -> str:
         if not key:

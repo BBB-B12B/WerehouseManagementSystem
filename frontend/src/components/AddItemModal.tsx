@@ -258,6 +258,16 @@ export function AddItemModal({
             ) : null}
           </label>
           <label className="flex flex-col gap-1 text-sm">
+            หน่วย *
+            <input
+              name="unit"
+              defaultValue={item?.unit ?? ""}
+              className="rounded-md border border-slate-200 px-3 py-2"
+              placeholder="เช่น ชิ้น กล่อง หรือ ชุด"
+              required
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
             รหัสทรัพย์สิน (ถ้ามี)
             <input
               name="asset_code"

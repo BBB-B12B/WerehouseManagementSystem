@@ -17,6 +17,11 @@ import type {
   WarehouseMapResponse,
   WarehouseMapUpdatePayload,
 } from "../types/warehouse";
+import type {
+  WorkflowJob,
+  WorkflowJobCreatePayload,
+  WorkflowJobUpdatePayload,
+} from "../types/workflow";
 
 const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/api",
@@ -140,4 +145,26 @@ export async function uploadAttachment(
 
   const response = await apiClient.post<Attachment>("/storage/uploads", formData);
   return response.data;
+}
+
+export async function fetchReceivingJobs(): Promise<WorkflowJob[]> {
+  const response = await apiClient.get<WorkflowJob[]>("/inventory/receiving/jobs");
+  return response.data;
+}
+
+export async function createReceivingJob(payload: WorkflowJobCreatePayload): Promise<WorkflowJob> {
+  const response = await apiClient.post<WorkflowJob>("/inventory/receiving/jobs", payload);
+  return response.data;
+}
+
+export async function updateReceivingJob(
+  jobId: string,
+  payload: WorkflowJobUpdatePayload,
+): Promise<WorkflowJob> {
+  const response = await apiClient.put<WorkflowJob>(`/inventory/receiving/jobs/${jobId}`, payload);
+  return response.data;
+}
+
+export async function deleteReceivingJob(jobId: string): Promise<void> {
+  await apiClient.delete(`/inventory/receiving/jobs/${jobId}`);
 }

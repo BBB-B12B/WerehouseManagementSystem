@@ -28,7 +28,7 @@ async def upload_to_r2(
     key = client.generate_object_key(prefix=prefix, file_name=safe_file_name)
     try:
         client.upload_file(key, content=data, content_type=file.content_type)
-        public_url = client.generate_signed_read_url(key)
+        public_url = client.build_public_url(key)
     except HTTPError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
