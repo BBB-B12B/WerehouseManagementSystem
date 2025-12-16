@@ -128,6 +128,10 @@ class FirebaseRequestRepository:
                     image_url=data.get("image_url"),
                     tags=list(data.get("tags", [])),
                     location_hint=data.get("location_hint"),
+                    package_width_cm=self._safe_positive_float(data.get("package_width_cm")),
+                    package_depth_cm=self._safe_positive_float(data.get("package_depth_cm")),
+                    package_height_cm=self._safe_positive_float(data.get("package_height_cm")),
+                    package_volume_cm3=self._safe_positive_float(data.get("package_volume_cm3")),
                 )
             )
         items.sort(key=lambda item: item.name)
@@ -257,6 +261,12 @@ class FirebaseRequestRepository:
 
     def create_item(self, payload: ItemCreate) -> Item:
         doc_ref = self.items_collection.document()
+        package_data = self._prepare_package_document(
+            width=payload.package_width_cm,
+            depth=payload.package_depth_cm,
+            height=payload.package_height_cm,
+            volume=payload.package_volume_cm3,
+        )
         data = {
             "sku": payload.sku,
             "name": payload.name,
@@ -270,6 +280,7 @@ class FirebaseRequestRepository:
             "location_hint": payload.location_hint,
             "active": payload.active,
         }
+        data.update(package_data)
         doc_ref.set(data)
         return Item(id=doc_ref.id, **data)
 
@@ -288,6 +299,7 @@ class FirebaseRequestRepository:
             stock_on_hand = update_data.get("stock_on_hand", current_data.get("stock_on_hand", 0))
             if update_data["stock_reserved"] > stock_on_hand:
                 raise ValueError("stock_reserved ต้องไม่เกิน stock_on_hand")
+        self._apply_package_updates(update_data, current_data)
         doc_ref.update(update_data)
         current_data.update(update_data)
         if "image_url" in update_data and previous_image and update_data.get("image_url") != previous_image:
@@ -328,6 +340,80 @@ class FirebaseRequestRepository:
                 return path[len(bucket_prefix) :]
             return path or None
         return text.lstrip("/")
+
+    def _safe_positive_float(self, value: Optional[object]) -> Optional[float]:
+        if value is None:
+            return None
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return None
+        return round(numeric, 4) if numeric > 0 else None
+
+    def _prepare_package_document(
+        self,
+        *,
+        width: Optional[float],
+        depth: Optional[float],
+        height: Optional[float],
+        volume: Optional[float],
+    ) -> dict[str, Optional[float]]:
+        normalized_width = self._safe_positive_float(width)
+        normalized_depth = self._safe_positive_float(depth)
+        normalized_height = self._safe_positive_float(height)
+        normalized_volume = self._safe_positive_float(volume)
+        computed_volume = self._calculate_volume(normalized_width, normalized_depth, normalized_height)
+        if computed_volume is not None:
+            normalized_volume = computed_volume
+        return {
+            "package_width_cm": normalized_width,
+            "package_depth_cm": normalized_depth,
+            "package_height_cm": normalized_height,
+            "package_volume_cm3": normalized_volume,
+        }
+
+    def _apply_package_updates(
+        self,
+        update_data: dict[str, object],
+        current_data: dict[str, object],
+    ) -> None:
+        fields = ("package_width_cm", "package_depth_cm", "package_height_cm")
+        dims_changed = any(field in update_data for field in fields)
+        volume_changed = "package_volume_cm3" in update_data
+        if not dims_changed and not volume_changed:
+            return
+        resolved = self._prepare_package_document(
+            width=update_data.get("package_width_cm")
+            if "package_width_cm" in update_data
+            else current_data.get("package_width_cm"),
+            depth=update_data.get("package_depth_cm")
+            if "package_depth_cm" in update_data
+            else current_data.get("package_depth_cm"),
+            height=update_data.get("package_height_cm")
+            if "package_height_cm" in update_data
+            else current_data.get("package_height_cm"),
+            volume=update_data.get("package_volume_cm3")
+            if volume_changed
+            else current_data.get("package_volume_cm3"),
+        )
+        for field in fields:
+            if field in update_data:
+                update_data[field] = resolved[field]
+        if dims_changed or volume_changed:
+            update_data["package_volume_cm3"] = resolved["package_volume_cm3"]
+
+    def _calculate_volume(
+        self,
+        width: Optional[float],
+        depth: Optional[float],
+        height: Optional[float],
+    ) -> Optional[float]:
+        if width is None or depth is None or height is None:
+            return None
+        volume = width * depth * height
+        if volume <= 0:
+            return None
+        return round(volume, 2)
 
 
 class InMemoryRequestRepository:
@@ -448,6 +534,10 @@ class InMemoryRequestRepository:
             tags=payload.tags,
             location_hint=payload.location_hint,
             active=payload.active,
+            package_width_cm=payload.package_width_cm,
+            package_depth_cm=payload.package_depth_cm,
+            package_height_cm=payload.package_height_cm,
+            package_volume_cm3=payload.package_volume_cm3,
         )
         self._items[item_id] = item
         return item

@@ -10,6 +10,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class FirebaseSettings(BaseSettings):
     """ค่าตั้งต้นสำหรับเชื่อม Firebase Admin SDK."""
 
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
     project_id: str = Field(default="demo-project", alias="FIREBASE_PROJECT_ID")
     service_account_path: str = Field(default="config/firebase.template.json", alias="FIREBASE_CREDENTIALS")
 
@@ -17,16 +19,22 @@ class FirebaseSettings(BaseSettings):
 class R2Settings(BaseSettings):
     """ค่าตั้งต้นสำหรับเชื่อม Cloudflare R2."""
 
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
     account_id: str = Field(default="demo-account", alias="R2_ACCOUNT_ID")
     access_key_id: str = Field(default="demo-access-key", alias="R2_ACCESS_KEY_ID")
     secret_access_key: str = Field(default="demo-secret", alias="R2_SECRET_ACCESS_KEY")
     bucket_name: str = Field(default="wms-material-assets", alias="R2_BUCKET_NAME")
     public_base_url: str = Field(default="https://example.r2.dev", alias="R2_PUBLIC_BASE_URL")
     signed_url_ttl: int = Field(default=3600, alias="R2_SIGNED_URL_TTL")
+    verify_ssl: bool = Field(default=True, alias="R2_VERIFY_SSL")
+    ca_bundle: str | None = Field(default=None, alias="R2_CA_BUNDLE")
 
 
 class WorkflowSettings(BaseSettings):
     """ค่าตั้งต้นสำหรับโครงสร้างเอกสารงานคลังสินค้า."""
+
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     root_collection: str = Field(default="warehouse_workflows", alias="WORKFLOW_ROOT_COLLECTION")
     root_document: str = Field(default="document", alias="WORKFLOW_ROOT_DOCUMENT")

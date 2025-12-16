@@ -30,6 +30,15 @@ export function AddItemModal({
     item?.category_type ?? (item?.asset_code ? "equipment" : "material"),
   );
   const [productType, setProductType] = useState<string>("");
+  const [packageWidth, setPackageWidth] = useState<string>(
+    item?.package_width_cm != null ? String(item.package_width_cm) : "",
+  );
+  const [packageDepth, setPackageDepth] = useState<string>(
+    item?.package_depth_cm != null ? String(item.package_depth_cm) : "",
+  );
+  const [packageHeight, setPackageHeight] = useState<string>(
+    item?.package_height_cm != null ? String(item.package_height_cm) : "",
+  );
 
   const productTypeOptions = useMemo(
     () =>
@@ -49,7 +58,18 @@ export function AddItemModal({
     } else {
       setProductType("");
     }
+    setPackageWidth(item?.package_width_cm != null ? String(item.package_width_cm) : "");
+    setPackageDepth(item?.package_depth_cm != null ? String(item.package_depth_cm) : "");
+    setPackageHeight(item?.package_height_cm != null ? String(item.package_height_cm) : "");
   }, [item, categories]);
+
+  const packageVolumePreview = useMemo(() => {
+    const width = parseDimensionText(packageWidth);
+    const depth = parseDimensionText(packageDepth);
+    const height = parseDimensionText(packageHeight);
+    const computed = computePackageVolume(width, depth, height);
+    return computed;
+  }, [packageWidth, packageDepth, packageHeight]);
 
   const isEdit = mode === "edit" && item;
 
@@ -118,6 +138,14 @@ export function AddItemModal({
       location_hint: String(formData.get("location_hint") ?? "").trim() || undefined,
       active: true,
     };
+
+    const widthValue = parseDimensionValue(formData.get("package_width_cm"));
+    const depthValue = parseDimensionValue(formData.get("package_depth_cm"));
+    const heightValue = parseDimensionValue(formData.get("package_height_cm"));
+    payload.package_width_cm = widthValue;
+    payload.package_depth_cm = depthValue;
+    payload.package_height_cm = heightValue;
+    payload.package_volume_cm3 = computePackageVolume(widthValue, depthValue, heightValue);
 
     if (!payload.sku || !payload.name || !payload.unit) {
       setErrorMessage("กรุณากรอกข้อมูลที่จำเป็นให้ครบ");
@@ -300,6 +328,54 @@ export function AddItemModal({
               className="rounded-md border border-slate-200 px-3 py-2"
             />
           </label>
+          <div className="md:col-span-2 grid gap-4 rounded-lg border border-slate-200 p-4">
+            <div className="md:col-span-2 text-sm font-semibold text-slate-700">ข้อมูลบรรจุภัณฑ์ (เซนติเมตร)</div>
+            <div className="grid gap-4 md:grid-cols-4">
+              <label className="flex flex-col gap-1 text-sm">
+                กว้าง (W)
+                <input
+                  name="package_width_cm"
+                  type="number"
+                  min={0}
+                  value={packageWidth}
+                  onChange={(event) => setPackageWidth(event.target.value)}
+                  className="rounded-md border border-slate-200 px-3 py-2"
+                  placeholder="เช่น 30"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                ลึก/ยาว (D)
+                <input
+                  name="package_depth_cm"
+                  type="number"
+                  min={0}
+                  value={packageDepth}
+                  onChange={(event) => setPackageDepth(event.target.value)}
+                  className="rounded-md border border-slate-200 px-3 py-2"
+                  placeholder="เช่น 25"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                สูง (H)
+                <input
+                  name="package_height_cm"
+                  type="number"
+                  min={0}
+                  value={packageHeight}
+                  onChange={(event) => setPackageHeight(event.target.value)}
+                  className="rounded-md border border-slate-200 px-3 py-2"
+                  placeholder="เช่น 18"
+                />
+              </label>
+              <div className="flex flex-col gap-1 text-sm">
+                ปริมาตรโดยประมาณ
+                <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
+                  {packageVolumePreview ? `${packageVolumePreview.toLocaleString()} ลบ.ซม.` : "—"}
+                </div>
+                <p className="text-xs text-slate-500">ระบบคำนวณจาก กว้าง × ลึก × สูง ต่อ 1 หน่วย</p>
+              </div>
+            </div>
+          </div>
           <label className="md:col-span-2 flex flex-col gap-1 text-sm">
             คำอธิบาย
             <textarea
@@ -438,4 +514,52 @@ export function AddItemModal({
       </div>
     </div>
   );
+}
+
+function parseDimensionValue(value: FormDataEntryValue | null): number | null {
+  if (value === null) {
+    return null;
+  }
+  const text = String(value).trim();
+  if (!text) {
+    return null;
+  }
+  const numeric = Number(text);
+  if (!Number.isFinite(numeric)) {
+    return null;
+  }
+  return numeric;
+}
+
+function parseDimensionText(value: string): number | null {
+  if (!value.trim()) {
+    return null;
+  }
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return null;
+  }
+  return numeric;
+}
+
+function computePackageVolume(
+  width: number | null | undefined,
+  depth: number | null | undefined,
+  height: number | null | undefined,
+): number | null {
+  if (
+    width === null ||
+    width === undefined ||
+    depth === null ||
+    depth === undefined ||
+    height === null ||
+    height === undefined
+  ) {
+    return null;
+  }
+  const volume = width * depth * height;
+  if (!Number.isFinite(volume) || volume <= 0) {
+    return null;
+  }
+  return Number(volume.toFixed(2));
 }

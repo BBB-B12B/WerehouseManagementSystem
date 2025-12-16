@@ -98,6 +98,8 @@
 - [x] T502 [P] จัดทำ dashboard พื้นฐานใน `frontend/src/pages/AnalyticsOverview.tsx`
 - [ ] T503 ตรวจสอบ coverage ≥85% (pytest + frontend tests + mobile tests) ⚠️ ติดขัดเครือข่ายระหว่างติดตั้ง dependency
 - [x] T504 ทบทวน security/performance audit checklist (`specs/001-wms-material-request/security-performance.md`)
+- [x] T505 เพิ่ม image pipeline ย่อ/บีบอัดก่อนอัปโหลด R2 (`/api/storage/uploads` ใช้ Pillow resize max 1600px, JPEG/WEBP ~quality 75, PNG optimize)
+- [x] T506 เพิ่ม config ปิดตรวจ SSL R2 (env `R2_VERIFY_SSL`) สำหรับ dev กรณี TLS inspection
 
 ---
 
@@ -109,6 +111,7 @@
 - `google-cloud-firestore` (Python backend)
 - `dayjs` (Frontend)  
 - `@react-native-async-storage/async-storage` (Mobile)
+- `Pillow` (Backend image processing)
 
 **การดำเนินการเมื่อเครือข่ายพร้อม**: ดู `NETWORK_RECOVERY.md` และรันสคริปต์ `./check-offline.sh`
 

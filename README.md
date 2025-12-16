@@ -25,6 +25,29 @@ A comprehensive warehouse management system built with FastAPI, React, and React
 
 สำหรับขั้นตอนละเอียด (ภาษาไทย) ดู `specs/001-wms-material-request/quickstart.md`
 
+### One-command dev (UI + worker)
+
+```bash
+./scripts/run_ui_and_worker.sh
+```
+- รัน Vite dev server ของ frontend พร้อม worker สำหรับดึงข้อมูล (ค่าเริ่มต้นใช้ `python -m uvicorn src.main:app --reload`); ปรับคำสั่งได้ผ่าน env `FRONTEND_CMD` และ `WORKER_CMD`.
+- กด Ctrl+C เพื่อหยุดทั้งคู่
+
+## การใช้งานระบบ (Usage Overview)
+
+1) เปิด Backend (`uvicorn src.main:app --reload`) พร้อม Frontend (`cd frontend && npm run dev`) และเลือกโหมดการใช้งานจาก UI (Requester / Store Ops / Logistics); ถ้าต้องการสแกน QR/บันทึก put-away ผ่านมือถือให้เปิด Expo (`cd mobile-scanner && npx expo start`).
+2) เรียกดูเอกสาร API ที่ http://localhost:8000/docs เพื่อดูสคีมา/ตัวอย่าง payload ทุกจุดของระบบ
+
+### โฟลว์หลักตามบทบาท
+
+- **Requester (ร้องขอวัสดุ)**: เลือกสินค้าในแคตตาล็อก (เรียก `GET /api/catalog/categories|items`), ใส่จำนวนและวันที่ต้องการ ใช้ `/api/storage/uploads` เพื่ออัปโหลดไฟล์แนบ (เก็บใน Cloudflare R2 ผ่าน Worker URL) จากนั้นส่งคำร้องด้วย `POST /api/requests`; ข้อมูลถูกบันทึกลง Firestore collection `requests` (หรือ fallback in-memory เมื่อ `APP_ENV=local`).
+- **Store Ops – Receiving & Counting**: สร้างใบงานรับของด้วย `POST /api/inventory/receiving/jobs` ใส่รายการ SKU/จำนวนคาดหวัง แล้วอัปเดตผลตรวจนับผ่าน `PUT /api/inventory/receiving/jobs/{id}` (ตั้ง `count_status` เป็น `pending|matched|mismatch` และบันทึกจำนวนจริง); ระบบจะป้องกันการแก้ไขโครงสร้างใบงานหลังมีการตรวจนับ/ผูก putaway แล้ว.
+- **Putaway / จัดเก็บสินค้า**: เลือกไลน์ที่ตรวจนับแล้วจาก RD เพื่อสร้าง Putaway Job (`POST /api/inventory/putaway/jobs` ระบุ `parent_receiving_job_id` และ `receiving_line_ids`); แรงงานบันทึกการเคลื่อนย้ายทีละรายการผ่าน `PUT /api/inventory/putaway/jobs/{job_id}` โดยใส่ `movements` (location, qty, note, evidence) และอัปเดตสถานะ job (`open|in_progress|completed|cancelled`). ถ้าบันทึกผิดสามารถให้แอดมินลบ movement ด้วย `DELETE /api/inventory/putaway/jobs/{job_id}/movements/{movement_id}`.
+- **Picking Queue & QR Scanner**: คิวหยิบสินค้าดึงจากคำร้องที่อนุมัติแล้วด้วย `GET /api/inventory/picking-queue` (รวม location แนะนำจาก balance mock); โมบาย/เว็บสแกน QR เพื่อเคลื่อนย้ายสต็อกผ่าน `POST /api/inventory/transactions/scan` โดยรองรับ `put_away` และ `pick` พร้อมตรวจยอดคงเหลือ/โควตาอนุมัติ.
+- **Logistics Work Orders**: วางแผนใบงานขนส่ง/โหลดของด้วย `/api/logistics/work-orders` (list/create/update status) และอัปเดตสถานะ task รายสายงานผ่าน `PATCH /api/logistics/work-orders/{id}/tasks/{task_id}` เพื่อให้แดชบอร์ด Logistics เห็นความคืบหน้า.
+- **Warehouse Map & Location Master**: จัดการตำแหน่งจัดเก็บด้วย `GET/POST/PUT/DELETE /api/inventory/locations` และแผนผังคลังด้วย `GET/POST/PUT/DELETE /api/inventory/maps`; เมื่ออัปโหลดผังใหม่ระบบลบไฟล์เก่าใน R2 อัตโนมัติและส่งคืน Worker URL ให้ UI.
+- **ไฟล์แนบและสตอเรจ**: ทุกไฟล์ (คำร้อง, แผนผัง, หลักฐาน putaway) อัปโหลดผ่าน `/api/storage/uploads` โดยใส่ `prefix` ให้ถูกบริบท (`requests/`, `putaway/`, `inventory-maps/` เป็นต้น) แล้วใช้ `public_url` ที่ได้ไปผูกกับเอนทิตีอื่น ๆ; ไฟล์ภาพจะถูกย่อขนาด (ด้านยาวสุดไม่เกิน 1600px) และบีบอัดก่อนเก็บใน R2 เพื่อประหยัดแบนด์วิธ.
+
 ## Development Setup
 
 ### Prerequisites
@@ -98,6 +121,20 @@ A comprehensive warehouse management system built with FastAPI, React, and React
    ```bash
    npm run dev
    ```
+   - หากต้องการทดสอบฟีเจอร์ที่ต้องใช้กล้อง/HTTPS (เช่น Putaway Worker Scanner) ให้สร้าง self-signed cert สำหรับ `localhost` (เลือกอย่างใดอย่างหนึ่ง):
+     ```bash
+     cd frontend
+     # วิธีที่ 1: ใช้สคริปต์ openssl ที่เตรียมไว้
+     ./scripts/generate-dev-cert.sh
+
+     # วิธีที่ 2: ใช้ mkcert (แนะนำถ้าติดตั้งไว้)
+     mkcert -install
+     mkcert -key-file certs/localhost-key.pem -cert-file certs/localhost.pem localhost 127.0.0.1 ::1
+     
+     # จากนั้นรัน dev server แบบ HTTPS
+     npm run dev:https
+     ```
+     เมื่อ cert พร้อม Vite จะเสิร์ฟผ่าน `https://localhost:5173` ทำให้ Safari / Mobile Browser ขอสิทธิ์ใช้กล้องได้ตามปกติ (อย่าลืมเปิดไฟล์ cert แล้วตั้ง Trust = Always Trust ใน Keychain บน macOS)
 
 4. Run lint/test/coverage:
    ```bash

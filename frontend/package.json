@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "vite",
+    "dev:https": "VITE_DEV_SSL_CERT=certs/localhost.pem VITE_DEV_SSL_KEY=certs/localhost-key.pem vite --host localhost",
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint \"src/**/*.{ts,tsx}\"",

@@ -34,6 +34,18 @@ class Item(BaseModel):
     location_hint: Optional[str] = Field(
         default=None, description="ข้อความแนะนำตำแหน่ง (optional สำหรับ requester)"
     )
+    package_width_cm: Optional[float] = Field(
+        default=None, ge=0, description="ความกว้างบรรจุภัณฑ์ (เซนติเมตร)"
+    )
+    package_depth_cm: Optional[float] = Field(
+        default=None, ge=0, description="ความลึก/ยาวบรรจุภัณฑ์ (เซนติเมตร)"
+    )
+    package_height_cm: Optional[float] = Field(
+        default=None, ge=0, description="ความสูงบรรจุภัณฑ์ (เซนติเมตร)"
+    )
+    package_volume_cm3: Optional[float] = Field(
+        default=None, ge=0, description="ปริมาตรต่อหน่วย (ลูกบาศก์เซนติเมตร)"
+    )
 
     @field_validator("stock_reserved")
     @classmethod
@@ -57,6 +69,10 @@ class ItemCreate(BaseModel):
     image_url: Optional[HttpUrl] = Field(default=None)
     location_hint: Optional[str] = Field(default=None, max_length=120)
     active: bool = Field(default=True)
+    package_width_cm: Optional[float] = Field(default=None, ge=0)
+    package_depth_cm: Optional[float] = Field(default=None, ge=0)
+    package_height_cm: Optional[float] = Field(default=None, ge=0)
+    package_volume_cm3: Optional[float] = Field(default=None, ge=0)
 
     @field_validator("stock_reserved")
     @classmethod
@@ -82,6 +98,10 @@ class ItemUpdate(BaseModel):
     image_url: Optional[HttpUrl] = None
     location_hint: Optional[str] = Field(default=None, max_length=120)
     active: Optional[bool] = None
+    package_width_cm: Optional[float] = Field(default=None, ge=0)
+    package_depth_cm: Optional[float] = Field(default=None, ge=0)
+    package_height_cm: Optional[float] = Field(default=None, ge=0)
+    package_volume_cm3: Optional[float] = Field(default=None, ge=0)
 
     @field_validator("stock_reserved")
     @classmethod

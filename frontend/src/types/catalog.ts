@@ -22,6 +22,10 @@ export interface Item {
   image_url?: string | null;
   tags: string[];
   location_hint?: string | null;
+  package_width_cm?: number | null;
+  package_depth_cm?: number | null;
+  package_height_cm?: number | null;
+  package_volume_cm3?: number | null;
 }
 
 export interface ItemCreatePayload {
@@ -39,6 +43,10 @@ export interface ItemCreatePayload {
   image_url?: string;
   location_hint?: string;
   active?: boolean;
+  package_width_cm?: number | null;
+  package_depth_cm?: number | null;
+  package_height_cm?: number | null;
+  package_volume_cm3?: number | null;
 }
 
 export type ItemUpdatePayload = Partial<ItemCreatePayload>;

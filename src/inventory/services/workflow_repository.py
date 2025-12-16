@@ -18,6 +18,8 @@ from src.inventory.schemas.workflow import (
     WorkflowLineCreate,
     WorkflowLineUpdate,
     WorkflowStep,
+    WorkflowMovement,
+    WorkflowMovementCreate,
 )
 from src.shared.config import get_settings
 from src.shared.firebase.client import get_firestore_client
@@ -93,17 +95,34 @@ class WorkflowRepository:
         try:
             display_code = self._generate_display_code(step, now)
             lines = [self._build_line_from_create(line) for line in payload.lines]
+            movements = [self._build_movement_from_create(movement) for movement in payload.movements]
 
             data = {
                 "display_code": display_code,
                 "created_at": now,
                 "updated_at": now,
                 "lines": [self._line_to_dict(line) for line in lines],
+                "parent_receiving_job_id": payload.parent_receiving_job_id,
+                "receiving_line_ids": payload.receiving_line_ids,
+                "status": payload.status,
+                "assignee": payload.assignee,
+                "movements": [self._movement_to_dict(movement) for movement in movements],
             }
 
             doc_ref = self._root_doc.collection(step.value).document(job_id)
             doc_ref.set(data)
-            return WorkflowJob(id=job_id, display_code=display_code, created_at=now, updated_at=now, lines=lines)
+            return WorkflowJob(
+                id=job_id,
+                display_code=display_code,
+                created_at=now,
+                updated_at=now,
+                lines=lines,
+                parent_receiving_job_id=payload.parent_receiving_job_id,
+                receiving_line_ids=payload.receiving_line_ids,
+                status=payload.status,
+                assignee=payload.assignee,
+                movements=movements,
+            )
         except (google_exceptions.GoogleAPICallError, google_exceptions.RetryError) as exc:
             raise WorkflowBackendUnavailableError("firestore_unavailable") from exc
         except ValueError as exc:
@@ -121,7 +140,22 @@ class WorkflowRepository:
             existing = self._document_to_job(snapshot)
             now = datetime.now(timezone.utc)
 
-            updated_lines = [self._build_line_from_update(line) for line in payload.lines]
+            updated_lines = (
+                [self._build_line_from_update(line) for line in payload.lines]
+                if payload.lines is not None
+                else existing.lines
+            )
+            updated_movements = payload.movements if payload.movements is not None else existing.movements
+            updated_status = payload.status if payload.status is not None else existing.status
+            updated_assignee = payload.assignee if payload.assignee is not None else existing.assignee
+            receiving_line_ids = (
+                payload.receiving_line_ids if payload.receiving_line_ids is not None else existing.receiving_line_ids
+            )
+            parent_receiving_job_id = (
+                payload.parent_receiving_job_id
+                if payload.parent_receiving_job_id is not None
+                else existing.parent_receiving_job_id
+            )
 
             doc_ref.set(
                 {
@@ -129,6 +163,11 @@ class WorkflowRepository:
                     "created_at": existing.created_at,
                     "updated_at": now,
                     "lines": [self._line_to_dict(line) for line in updated_lines],
+                    "parent_receiving_job_id": parent_receiving_job_id,
+                    "receiving_line_ids": receiving_line_ids,
+                    "status": updated_status,
+                    "assignee": updated_assignee,
+                    "movements": [self._movement_to_dict(movement) for movement in updated_movements],
                 }
             )
 
@@ -138,6 +177,11 @@ class WorkflowRepository:
                 created_at=existing.created_at,
                 updated_at=now,
                 lines=updated_lines,
+                parent_receiving_job_id=parent_receiving_job_id,
+                receiving_line_ids=receiving_line_ids,
+                status=updated_status,
+                assignee=updated_assignee,
+                movements=updated_movements,
             )
         except (google_exceptions.GoogleAPICallError, google_exceptions.RetryError) as exc:
             raise WorkflowBackendUnavailableError("firestore_unavailable") from exc
@@ -155,7 +199,7 @@ class WorkflowRepository:
 
     def _build_line_from_create(self, line: WorkflowLineCreate) -> WorkflowLine:
         return WorkflowLine(
-            line_id=uuid.uuid4().hex,
+            line_id=line.source_line_id or uuid.uuid4().hex,
             item_id=line.item_id,
             sku=line.sku,
             name=line.name,
@@ -163,6 +207,13 @@ class WorkflowRepository:
             quantity_expected=line.quantity_expected,
             count_status="pending",
             counted_quantity=None,
+            preferred_location_id=line.preferred_location_id,
+            preferred_location_label=line.preferred_location_label,
+            putaway_quantity=line.putaway_quantity,
+            putaway_status="pending",
+            putaway_job_ids=[],
+            source_line_id=line.source_line_id,
+            package_volume_cm3=line.package_volume_cm3,
         )
 
     def _build_line_from_update(self, line: WorkflowLineUpdate) -> WorkflowLine:
@@ -175,6 +226,13 @@ class WorkflowRepository:
             quantity_expected=line.quantity_expected,
             count_status=line.count_status,
             counted_quantity=line.counted_quantity,
+            preferred_location_id=line.preferred_location_id,
+            preferred_location_label=line.preferred_location_label,
+            putaway_quantity=line.putaway_quantity,
+            putaway_status=line.putaway_status,
+            putaway_job_ids=line.putaway_job_ids,
+            source_line_id=line.source_line_id,
+            package_volume_cm3=line.package_volume_cm3,
         )
 
     def _line_to_dict(self, line: WorkflowLine) -> Dict[str, object]:
@@ -186,11 +244,21 @@ class WorkflowRepository:
             "unit": line.unit,
             "quantity_expected": line.quantity_expected,
             "count_status": line.count_status,
+            "preferred_location_id": line.preferred_location_id,
+            "preferred_location_label": line.preferred_location_label,
+            "putaway_quantity": line.putaway_quantity,
+            "putaway_status": line.putaway_status,
+            "putaway_job_ids": list(line.putaway_job_ids),
+            "source_line_id": line.source_line_id,
         }
         if line.counted_quantity is not None:
             data["counted_quantity"] = line.counted_quantity
         else:
             data["counted_quantity"] = None
+        if line.package_volume_cm3 is not None:
+            data["package_volume_cm3"] = line.package_volume_cm3
+        else:
+            data["package_volume_cm3"] = None
         return data
 
     def _document_to_job(self, snapshot: firestore.DocumentSnapshot) -> WorkflowJob:
@@ -198,7 +266,7 @@ class WorkflowRepository:
         lines_data = data.get("lines", [])
         lines = [
             WorkflowLine(
-                line_id=str(entry.get("line_id", uuid.uuid4().hex)),
+                line_id=str(entry.get("line_id", entry.get("source_line_id") or uuid.uuid4().hex)),
                 item_id=str(entry.get("item_id", "")),
                 sku=str(entry.get("sku", "")),
                 name=str(entry.get("name", "")),
@@ -206,6 +274,13 @@ class WorkflowRepository:
                 quantity_expected=int(entry.get("quantity_expected", 0)),
                 count_status=self._parse_status(entry.get("count_status")),
                 counted_quantity=self._parse_optional_int(entry.get("counted_quantity")),
+                preferred_location_id=entry.get("preferred_location_id"),
+                preferred_location_label=entry.get("preferred_location_label"),
+                putaway_quantity=self._parse_optional_int(entry.get("putaway_quantity")),
+                putaway_status=self._parse_putaway_status(entry.get("putaway_status")),
+                putaway_job_ids=list(entry.get("putaway_job_ids", [])),
+                source_line_id=entry.get("source_line_id"),
+                package_volume_cm3=self._parse_optional_float(entry.get("package_volume_cm3")),
             )
             for entry in lines_data
         ]
@@ -219,6 +294,11 @@ class WorkflowRepository:
             created_at=created_at,
             updated_at=updated_at,
             lines=lines,
+            parent_receiving_job_id=data.get("parent_receiving_job_id"),
+            receiving_line_ids=list(data.get("receiving_line_ids", [])),
+            status=str(data.get("status", "open")),
+            assignee=data.get("assignee"),
+            movements=[self._dict_to_movement(entry) for entry in data.get("movements", [])],
         )
 
     def _normalize_datetime(self, value: object) -> datetime:
@@ -233,6 +313,11 @@ class WorkflowRepository:
             return value  # type: ignore
         return "pending"
 
+    def _parse_putaway_status(self, value: object) -> str:
+        if isinstance(value, str) and value in {"pending", "scheduled", "in_progress", "stored"}:
+            return value
+        return "pending"
+
     def _parse_optional_int(self, value: object) -> Optional[int]:
         if value is None:
             return None
@@ -240,6 +325,73 @@ class WorkflowRepository:
             return int(value)
         except (TypeError, ValueError):
             return None
+
+    def _parse_optional_float(self, value: object) -> Optional[float]:
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _build_movement_from_create(self, movement: WorkflowMovementCreate) -> WorkflowMovement:
+        return WorkflowMovement(
+            movement_id=uuid.uuid4().hex,
+            receiving_line_id=movement.receiving_line_id,
+            location_id=movement.location_id,
+            location_label=movement.location_label,
+            quantity=movement.quantity,
+            unit=movement.unit,
+            note=movement.note,
+            recorded_at=datetime.now(timezone.utc),
+            evidence_urls=list(movement.evidence_urls),
+            location_mismatch=movement.location_mismatch,
+            quantity_mismatch=movement.quantity_mismatch,
+            item_name=movement.item_name,
+            sku=movement.sku,
+            volume_cm3=movement.volume_cm3,
+        )
+
+    def _movement_to_dict(self, movement: WorkflowMovement) -> Dict[str, object]:
+        return {
+            "movement_id": movement.movement_id,
+            "receiving_line_id": movement.receiving_line_id,
+            "location_id": movement.location_id,
+            "location_label": movement.location_label,
+            "quantity": movement.quantity,
+            "unit": movement.unit,
+            "note": movement.note,
+            "recorded_at": movement.recorded_at,
+            "evidence_urls": movement.evidence_urls,
+            "location_mismatch": movement.location_mismatch,
+            "quantity_mismatch": movement.quantity_mismatch,
+            "item_name": movement.item_name,
+            "sku": movement.sku,
+            "volume_cm3": movement.volume_cm3,
+        }
+
+    def _dict_to_movement(self, entry: Dict[str, object]) -> WorkflowMovement:
+        recorded_at = entry.get("recorded_at")
+        if isinstance(recorded_at, datetime):
+            recorded_at_value = recorded_at if recorded_at.tzinfo else recorded_at.replace(tzinfo=timezone.utc)
+        else:
+            recorded_at_value = datetime.now(timezone.utc)
+        return WorkflowMovement(
+            movement_id=str(entry.get("movement_id", uuid.uuid4().hex)),
+            receiving_line_id=str(entry.get("receiving_line_id", "")),
+            location_id=str(entry.get("location_id", "")),
+            location_label=entry.get("location_label"),
+            quantity=int(entry.get("quantity", 0)),
+            unit=str(entry.get("unit", "")),
+            note=entry.get("note"),
+            recorded_at=recorded_at_value,
+            evidence_urls=list(entry.get("evidence_urls", [])),
+            location_mismatch=bool(entry.get("location_mismatch", False)),
+            quantity_mismatch=bool(entry.get("quantity_mismatch", False)),
+            item_name=entry.get("item_name"),
+            sku=entry.get("sku"),
+            volume_cm3=self._parse_optional_float(entry.get("volume_cm3")),
+        )
 
     def _generate_display_code(self, step: WorkflowStep, now: datetime) -> str:
         month = f"{now.month:02d}"

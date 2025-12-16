@@ -7,6 +7,7 @@ import hmac
 import time
 from base64 import urlsafe_b64encode
 from dataclasses import dataclass
+import ssl
 from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any, Dict, Optional
@@ -31,6 +32,7 @@ class CloudflareR2Client:
         self._settings = settings
         self._endpoint = f"https://{self._settings.r2.account_id}.r2.cloudflarestorage.com"
         self._public_base = self._settings.r2.public_base_url.rstrip("/")
+        self._verify_target = self._build_ssl_context()
 
     @property
     def bucket_name(self) -> str:
@@ -146,7 +148,7 @@ class CloudflareR2Client:
             "Authorization": authorization_header,
         }
 
-        response = httpx.put(url, content=content, headers=headers, timeout=30.0)
+        response = httpx.put(url, content=content, headers=headers, timeout=30.0, verify=self._verify_target)
         response.raise_for_status()
         return self.build_object_url(key)
 
@@ -197,8 +199,36 @@ class CloudflareR2Client:
             "Authorization": authorization_header,
             "X-Amz-Content-Sha256": payload_hash,
         }
-        response = httpx.delete(url, headers=headers, timeout=15.0)
+        response = httpx.delete(url, headers=headers, timeout=15.0, verify=self._verify_target)
         response.raise_for_status()
+
+    def _build_ssl_context(self) -> ssl.SSLContext | bool:
+        if not self._settings.r2.verify_ssl:
+            return False
+
+        # สร้าง SSL context ที่รองรับการใช้งานกับ Cloudflare R2
+        try:
+            if self._settings.r2.ca_bundle:
+                ctx = ssl.create_default_context(cafile=self._settings.r2.ca_bundle)
+            else:
+                # ใช้ default context ที่จะโหลด CA จาก system
+                ctx = ssl.create_default_context()
+
+            # ตั้งค่าให้รองรับ TLS 1.2 และ 1.3
+            ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+            ctx.maximum_version = ssl.TLSVersion.TLSv1_3
+
+            # เปิดใช้ modern ciphers สำหรับ Cloudflare
+            ctx.set_ciphers('DEFAULT@SECLEVEL=1')
+
+            # เปิดใช้ SNI (Server Name Indication) และ ALPN
+            ctx.check_hostname = True
+            ctx.verify_mode = ssl.CERT_REQUIRED
+
+            return ctx
+        except Exception:
+            # ถ้าสร้าง context ไม่สำเร็จ ใช้ default
+            return True
 
     def generate_signed_read_url(self, key: str, *, expires_in: Optional[int] = None) -> str:
         if not key:

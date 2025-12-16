@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from enum import Enum
 from typing import Optional
+from datetime import datetime
 
 from pydantic import BaseModel, Field
 
@@ -51,3 +52,54 @@ class PickingQueueLine(BaseModel):
 class PickingQueueResponse(BaseModel):
     jobs: list[PickingQueueLine]
     total_jobs: int
+
+
+class StorageLocationBase(BaseModel):
+    name: str = Field(..., max_length=120)
+    building: Optional[str] = Field(default=None, max_length=120)
+    zone: str = Field(..., max_length=20)
+    aisle: Optional[str] = Field(default=None, max_length=20)
+    rack: str = Field(..., max_length=20)
+    level: str = Field(..., max_length=20)
+    bin: Optional[str] = Field(default=None, max_length=20)
+    code: str = Field(..., max_length=40, description="รหัสตำแหน่งสั้นๆ")
+    capacity: int = Field(default=0, ge=0, description="ความจุรวม (ชิ้น)")
+    note: Optional[str] = Field(default=None, max_length=500)
+    width_cm: Optional[int] = Field(default=None, ge=0)
+    depth_cm: Optional[int] = Field(default=None, ge=0)
+    height_cm: Optional[int] = Field(default=None, ge=0)
+    allowed_item_ids: list[str] = Field(
+        default_factory=list,
+        description="รายการ SKU/Item ID ที่อนุญาตให้เก็บในตำแหน่งนี้",
+    )
+
+
+class StorageLocationCreate(StorageLocationBase):
+    pass
+
+
+class StorageLocationUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=120)
+    building: Optional[str] = Field(default=None, max_length=120)
+    zone: Optional[str] = Field(default=None, max_length=20)
+    aisle: Optional[str] = Field(default=None, max_length=20)
+    rack: Optional[str] = Field(default=None, max_length=20)
+    level: Optional[str] = Field(default=None, max_length=20)
+    bin: Optional[str] = Field(default=None, max_length=20)
+    code: Optional[str] = Field(default=None, max_length=40)
+    capacity: Optional[int] = Field(default=None, ge=0)
+    note: Optional[str] = Field(default=None, max_length=500)
+    width_cm: Optional[int] = Field(default=None, ge=0)
+    depth_cm: Optional[int] = Field(default=None, ge=0)
+    height_cm: Optional[int] = Field(default=None, ge=0)
+    allowed_item_ids: Optional[list[str]] = Field(
+        default=None,
+        description="รายการ SKU/Item ID ที่อนุญาต (ตั้งค่าใหม่เมื่อส่งค่า)",
+    )
+
+
+class StorageLocation(StorageLocationBase):
+    id: str
+    created_at: datetime
+    updated_at: datetime
+    used_volume_cm3: float = Field(default=0, ge=0, description="ปริมาตรที่ถูกใช้งาน (ลูกบาศก์เซนติเมตร)")

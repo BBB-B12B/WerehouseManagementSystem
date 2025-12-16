@@ -16,11 +16,16 @@ import type {
   WarehouseMapCreatePayload,
   WarehouseMapResponse,
   WarehouseMapUpdatePayload,
+  StorageLocation,
+  StorageLocationCreatePayload,
+  StorageLocationUpdatePayload,
 } from "../types/warehouse";
 import type {
   WorkflowJob,
   WorkflowJobCreatePayload,
   WorkflowJobUpdatePayload,
+  PutawayJobCreatePayload,
+  PutawayJobUpdatePayload,
 } from "../types/workflow";
 
 const apiClient = axios.create({
@@ -135,6 +140,30 @@ export async function deleteWarehouseMap(mapId: string): Promise<void> {
   await apiClient.delete(`/inventory/maps/${mapId}`);
 }
 
+export async function fetchStorageLocations(): Promise<StorageLocation[]> {
+  const response = await apiClient.get<StorageLocation[]>("/inventory/locations");
+  return response.data;
+}
+
+export async function createStorageLocation(
+  payload: StorageLocationCreatePayload,
+): Promise<StorageLocation> {
+  const response = await apiClient.post<StorageLocation>("/inventory/locations", payload);
+  return response.data;
+}
+
+export async function updateStorageLocation(
+  locationId: string,
+  payload: StorageLocationUpdatePayload,
+): Promise<StorageLocation> {
+  const response = await apiClient.put<StorageLocation>(`/inventory/locations/${locationId}`, payload);
+  return response.data;
+}
+
+export async function deleteStorageLocation(locationId: string): Promise<void> {
+  await apiClient.delete(`/inventory/locations/${locationId}`);
+}
+
 export async function uploadAttachment(
   file: File,
   prefix = "requests",
@@ -167,4 +196,27 @@ export async function updateReceivingJob(
 
 export async function deleteReceivingJob(jobId: string): Promise<void> {
   await apiClient.delete(`/inventory/receiving/jobs/${jobId}`);
+}
+
+export async function fetchPutawayJobs(): Promise<WorkflowJob[]> {
+  const response = await apiClient.get<WorkflowJob[]>("/inventory/putaway/jobs");
+  return response.data;
+}
+
+export async function createPutawayJob(payload: PutawayJobCreatePayload): Promise<WorkflowJob> {
+  const response = await apiClient.post<WorkflowJob>("/inventory/putaway/jobs", payload);
+  return response.data;
+}
+
+export async function updatePutawayJob(
+  jobId: string,
+  payload: PutawayJobUpdatePayload,
+): Promise<WorkflowJob> {
+  const response = await apiClient.put<WorkflowJob>(`/inventory/putaway/jobs/${jobId}`, payload);
+  return response.data;
+}
+
+export async function deletePutawayMovement(jobId: string, movementId: string): Promise<WorkflowJob> {
+  const response = await apiClient.delete<WorkflowJob>(`/inventory/putaway/jobs/${jobId}/movements/${movementId}`);
+  return response.data;
 }
